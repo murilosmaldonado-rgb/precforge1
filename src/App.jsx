@@ -447,6 +447,67 @@ function LoginScreen({ onLogin }) {
   );
 }
 
+/* ------------------------------ Definir nova senha -------------------------- */
+// Tela mostrada quando a pessoa chega pelo link de e-mail (redefinição de
+// senha ou primeiro acesso de um investidor recém-criado).
+
+function SetNewPasswordScreen({ onDone }) {
+  const [senha, setSenha] = useState("");
+  const [confirmar, setConfirmar] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    setError("");
+    if (senha.length < 6) {
+      setError("A senha precisa ter pelo menos 6 caracteres.");
+      return;
+    }
+    if (senha !== confirmar) {
+      setError("As senhas não coincidem.");
+      return;
+    }
+    setSubmitting(true);
+    const { error: err } = await supabase.auth.updateUser({ password: senha });
+    setSubmitting(false);
+    if (err) {
+      setError(err.message || "Não foi possível definir a senha. O link pode ter expirado — peça um novo.");
+      return;
+    }
+    onDone();
+  }
+
+  return (
+    <div className="pf-login">
+      <div className="pf-login-side">
+        <div className="pf-login-side-inner">
+          <div className="pf-brand"><ForgeMark /><span>PrecForge</span></div>
+          <h1>Quase lá.</h1>
+          <p>Defina sua senha de acesso para continuar.</p>
+        </div>
+      </div>
+      <div className="pf-login-form-wrap">
+        <form className="pf-login-form" onSubmit={submit}>
+          <div className="pf-brand pf-brand-mobile"><ForgeMark size={22} /><span>PrecForge</span></div>
+          <h2>Defina sua senha</h2>
+          <p className="pf-login-sub">Escolha uma senha para acessar sua conta na PrecForge.</p>
+          <Field label="Nova senha">
+            <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} required minLength={6} placeholder="••••••••" />
+          </Field>
+          <Field label="Confirmar nova senha">
+            <input type="password" value={confirmar} onChange={(e) => setConfirmar(e.target.value)} required minLength={6} placeholder="••••••••" />
+          </Field>
+          {error && <div className="pf-error"><AlertCircle size={14} /> {error}</div>}
+          <button type="submit" className="pf-btn pf-btn-primary pf-btn-block" disabled={submitting}>
+            {submitting ? "Salvando…" : "Salvar senha e entrar"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 /* --------------------------------- Sidebar --------------------------------- */
 
 function Sidebar({ role, page, setPage, onLogout, open, setOpen }) {
@@ -1411,6 +1472,7 @@ export default function App() {
   const [auditLogs, setAuditLogs] = useState([]);
 
   const [session, setSession] = useState(null);
+  const [recoveryMode, setRecoveryMode] = useState(false);
   const [page, setPage] = useState("dashboard");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [openInvestment, setOpenInvestment] = useState(null);
@@ -1440,6 +1502,34 @@ export default function App() {
     if (auditRes.data) setAuditLogs(auditRes.data.map(mapAuditLog));
   }
 
+  // Detecta quando a pessoa chega pelo link de e-mail (redefinição de senha
+  // ou primeiro acesso). Nesse caso, o Supabase dispara o evento abaixo em
+  // vez de simplesmente logar a pessoa direto.
+  useEffect(() => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY") {
+        setRecoveryMode(true);
+        setBooting(false);
+      }
+    });
+    return () => listener?.subscription?.unsubscribe();
+  }, []);
+
+  async function finishRecovery() {
+    setRecoveryMode(false);
+    const { data } = await supabase.auth.getSession();
+    const authUser = data?.session?.user;
+    if (authUser) {
+      const { data: profileRow } = await supabase.from("profiles").select("*").eq("id", authUser.id).single();
+      if (profileRow) {
+        setSession(mapProfile(profileRow));
+        setPage("dashboard");
+        await loadAllData();
+        addToast("Senha definida com sucesso. Bem-vindo(a)!", "success");
+      }
+    }
+  }
+
   // Ao carregar a página, verifica se já existe uma sessão válida (usuário
   // continua logado após atualizar a página).
   useEffect(() => {
@@ -1461,7 +1551,18 @@ export default function App() {
 
   async function handleLogin(email, senha) {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password: senha });
-    if (error) throw new Error("E-mail ou senha inválidos.");
+    if (error) {
+      const msg = (error.message || "").toLowerCase();
+      if (msg.includes("email not confirmed")) {
+        throw new Error("Este e-mail ainda não foi confirmado. Confirme o usuário no Supabase (Authentication > Users) antes de entrar.");
+      }
+      if (msg.includes("invalid login credentials")) {
+        throw new Error("E-mail ou senha inválidos.");
+      }
+      // Mostra o erro original (ex.: problema de conexão com o Supabase,
+      // URL/chave erradas) em vez de esconder atrás de uma mensagem genérica.
+      throw new Error(`Não foi possível entrar: ${error.message}`);
+    }
     const { data: profileRow, error: profileError } = await supabase
       .from("profiles").select("*").eq("id", data.user.id).single();
     if (profileError || !profileRow) throw new Error("Não foi possível carregar seu perfil.");
@@ -1559,6 +1660,7 @@ export default function App() {
     addToast("Investimento cadastrado com sucesso.", "success");
   }
 
+  if (recoveryMode) return <><GlobalStyle /><SetNewPasswordScreen onDone={finishRecovery} /></>;
   if (booting) return <><GlobalStyle /><LoadingScreen /></>;
   if (!session) return <><GlobalStyle /><LoginScreen onLogin={handleLogin} /></>;
 
