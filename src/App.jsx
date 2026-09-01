@@ -1836,9 +1836,9 @@ export default function App() {
     addToast("Investimento excluído.", "success");
   }
 
-  if (recoveryMode) return <><GlobalStyle /><SetNewPasswordScreen onDone={finishRecovery} /></>;
-  if (booting) return <><GlobalStyle /><LoadingScreen /></>;
-  if (!session) return <><GlobalStyle /><LoginScreen onLogin={handleLogin} /></>;
+  if (recoveryMode) return <div className="pf-app"><GlobalStyle /><SetNewPasswordScreen onDone={finishRecovery} /></div>;
+  if (booting) return <div className="pf-app"><GlobalStyle /><LoadingScreen /></div>;
+  if (!session) return <div className="pf-app"><GlobalStyle /><LoginScreen onLogin={handleLogin} /></div>;
 
   const isMaster = session.role === "master";
   const navItems = isMaster ? NAV_ADMIN : NAV_INVESTOR;
