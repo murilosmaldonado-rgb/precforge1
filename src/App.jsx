@@ -1080,20 +1080,37 @@ function AdminInvestidores({ users, investments, onCreate, onUpdate, onBlock, on
 
 /* ================================ ADMIN: INVESTIMENTOS ============================ */
 
-function InvestmentFormModal({ users, onClose, onSave }) {
+function InvestmentFormModal({ users, initial, onClose, onSave }) {
   const investidores = users.filter((u) => u.role === "investidor");
-  const [form, setForm] = useState({
-    userId: investidores[0]?.id || "",
-    nome: "",
-    tipo: TIPOS_INVESTIMENTO[0],
-    valorInvestido: "",
-    dataAplicacao: new Date().toISOString().slice(0, 10),
-    taxa: "",
-    tipoTaxa: "Prefixada",
-    prazoMeses: "",
-    dataVencimento: "",
-    observacoes: "",
-  });
+  const [form, setForm] = useState(() =>
+    initial
+      ? {
+          userId: initial.userId,
+          nome: initial.nome,
+          tipo: initial.tipo,
+          valorInvestido: String(initial.valorInvestido),
+          dataAplicacao: initial.dataAplicacao,
+          taxa: String(Number((initial.taxa * 100).toFixed(4))),
+          tipoTaxa: initial.tipoTaxa,
+          prazoMeses: String(initial.prazoMeses),
+          dataVencimento: initial.dataVencimento || "",
+          observacoes: initial.observacoes || "",
+          status: initial.status,
+        }
+      : {
+          userId: investidores[0]?.id || "",
+          nome: "",
+          tipo: TIPOS_INVESTIMENTO[0],
+          valorInvestido: "",
+          dataAplicacao: new Date().toISOString().slice(0, 10),
+          taxa: "",
+          tipoTaxa: "Prefixada",
+          prazoMeses: "",
+          dataVencimento: "",
+          observacoes: "",
+          status: "Ativo",
+        }
+  );
 
   function submit(e) {
     e.preventDefault();
@@ -1102,12 +1119,11 @@ function InvestmentFormModal({ users, onClose, onSave }) {
       valorInvestido: parseFloat(form.valorInvestido),
       taxa: parseFloat(form.taxa) / 100,
       prazoMeses: parseInt(form.prazoMeses, 10),
-      status: "Ativo",
     });
   }
 
   return (
-    <Modal title="Novo investimento" onClose={onClose} wide>
+    <Modal title={initial ? `Editar investimento — ${initial.nome}` : "Novo investimento"} onClose={onClose} wide>
       <form className="pf-form pf-form-grid" onSubmit={submit}>
         <Field label="Investidor">
           <select value={form.userId} onChange={(e) => setForm({ ...form, userId: e.target.value })} required>
@@ -1143,17 +1159,43 @@ function InvestmentFormModal({ users, onClose, onSave }) {
         <Field label="Data prevista de vencimento">
           <input required type="date" value={form.dataVencimento} onChange={(e) => setForm({ ...form, dataVencimento: e.target.value })} />
         </Field>
+        {initial && (
+          <Field label="Status">
+            <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+              <option>Ativo</option>
+              <option>Liquidado</option>
+              <option>Em análise</option>
+              <option>Suspenso</option>
+            </select>
+          </Field>
+        )}
         <Field label="Observações">
           <textarea rows={2} value={form.observacoes} onChange={(e) => setForm({ ...form, observacoes: e.target.value })} />
         </Field>
-        <button className="pf-btn pf-btn-primary pf-btn-block pf-form-span" type="submit">Cadastrar investimento</button>
+        <button className="pf-btn pf-btn-primary pf-btn-block pf-form-span" type="submit">
+          {initial ? "Salvar alterações" : "Cadastrar investimento"}
+        </button>
       </form>
     </Modal>
   );
 }
 
-function AdminInvestimentos({ users, investments, onCreate, onOpenInvestment }) {
+function ConfirmModal({ title, message, confirmLabel, onConfirm, onCancel }) {
+  return (
+    <Modal title={title} onClose={onCancel}>
+      <p className="pf-modal-text">{message}</p>
+      <div className="pf-confirm-actions">
+        <button className="pf-btn pf-btn-ghost pf-btn-block" onClick={onCancel}>Cancelar</button>
+        <button className="pf-btn pf-btn-danger pf-btn-block" onClick={onConfirm}>{confirmLabel}</button>
+      </div>
+    </Modal>
+  );
+}
+
+function AdminInvestimentos({ users, investments, onCreate, onUpdate, onDelete, onOpenInvestment }) {
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [deleting, setDeleting] = useState(null);
   const [search, setSearch] = useState("");
   const [filterUser, setFilterUser] = useState("");
   const [filterTipo, setFilterTipo] = useState("");
@@ -1214,7 +1256,7 @@ function AdminInvestimentos({ users, investments, onCreate, onOpenInvestment }) 
             <thead>
               <tr>
                 <th>Investimento</th><th>Investidor</th><th>Data</th><th>Valor</th>
-                <th>Taxa</th><th>Rentab.</th><th>Valor atual</th><th>Status</th>
+                <th>Taxa</th><th>Rentab.</th><th>Valor atual</th><th>Status</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -1228,9 +1270,15 @@ function AdminInvestimentos({ users, investments, onCreate, onOpenInvestment }) 
                   <td className="pf-mono"><Delta value={accruedPercent(inv, now)} /></td>
                   <td className="pf-mono pf-cell-strong">{formatBRL(currentValueAt(inv, now))}</td>
                   <td><Badge status={inv.status} /></td>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <div className="pf-row-actions">
+                      <button className="pf-icon-btn" title="Editar" onClick={() => setEditing(inv)}><Pencil size={15} /></button>
+                      <button className="pf-icon-btn pf-icon-btn-danger" title="Excluir" onClick={() => setDeleting(inv)}><X size={15} /></button>
+                    </div>
+                  </td>
                 </tr>
               ))}
-              {filtered.length === 0 && <tr><td colSpan={8} className="pf-empty">Nenhum investimento encontrado.</td></tr>}
+              {filtered.length === 0 && <tr><td colSpan={9} className="pf-empty">Nenhum investimento encontrado.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -1238,6 +1286,23 @@ function AdminInvestimentos({ users, investments, onCreate, onOpenInvestment }) 
 
       {creating && (
         <InvestmentFormModal users={users} onClose={() => setCreating(false)} onSave={(data) => { onCreate(data); setCreating(false); }} />
+      )}
+      {editing && (
+        <InvestmentFormModal
+          users={users}
+          initial={editing}
+          onClose={() => setEditing(null)}
+          onSave={(data) => { onUpdate(editing.id, data); setEditing(null); }}
+        />
+      )}
+      {deleting && (
+        <ConfirmModal
+          title="Excluir investimento"
+          message={`Tem certeza que deseja excluir "${deleting.nome}" (${nameOf(deleting.userId)})? Isso também remove as movimentações e documentos ligados a ele. Esta ação não pode ser desfeita.`}
+          confirmLabel="Excluir definitivamente"
+          onCancel={() => setDeleting(null)}
+          onConfirm={() => { onDelete(deleting); setDeleting(null); }}
+        />
       )}
     </div>
   );
@@ -1659,6 +1724,34 @@ export default function App() {
     logAction("Cadastrou investimento", "INVESTMENTS", inv.id, `${inv.nome} — ${formatBRL(inv.valorInvestido)} a ${formatPercent(inv.taxa * 100, " a.a.")}`);
     addToast("Investimento cadastrado com sucesso.", "success");
   }
+  async function updateInvestment(id, data) {
+    const { error } = await supabase.from("investments").update({
+      user_id: data.userId,
+      nome: data.nome,
+      tipo: data.tipo,
+      valor_investido: data.valorInvestido,
+      data_aplicacao: data.dataAplicacao,
+      taxa: data.taxa,
+      tipo_taxa: data.tipoTaxa,
+      prazo_meses: data.prazoMeses,
+      data_vencimento: data.dataVencimento,
+      status: data.status,
+      observacoes: data.observacoes,
+    }).eq("id", id);
+    if (error) { addToast(`Erro ao atualizar investimento: ${error.message}`, "info"); return; }
+    setInvestments((is) => is.map((i) => (i.id === id ? { ...i, ...data } : i)));
+    logAction("Editou investimento", "INVESTMENTS", id, `${data.nome} — dados atualizados (taxa ${formatPercent(data.taxa * 100, " a.a.")}, vencimento ${formatDateBR(data.dataVencimento)}).`);
+    addToast("Investimento atualizado com sucesso.", "success");
+  }
+  async function deleteInvestment(inv) {
+    const { error } = await supabase.from("investments").delete().eq("id", inv.id);
+    if (error) { addToast(`Erro ao excluir investimento: ${error.message}`, "info"); return; }
+    setInvestments((is) => is.filter((i) => i.id !== inv.id));
+    setTransactions((ts) => ts.filter((t) => t.investmentId !== inv.id));
+    setDocuments((ds) => ds.filter((d) => d.investmentId !== inv.id));
+    logAction("Excluiu investimento", "INVESTMENTS", inv.id, `${inv.nome} (${formatBRL(inv.valorInvestido)}) removido da plataforma.`);
+    addToast("Investimento excluído.", "success");
+  }
 
   if (recoveryMode) return <><GlobalStyle /><SetNewPasswordScreen onDone={finishRecovery} /></>;
   if (booting) return <><GlobalStyle /><LoadingScreen /></>;
@@ -1703,7 +1796,7 @@ export default function App() {
               />
             )}
             {isMaster && page === "investimentos" && (
-              <AdminInvestimentos users={users} investments={investments} onCreate={createInvestment} onOpenInvestment={setOpenInvestment} />
+              <AdminInvestimentos users={users} investments={investments} onCreate={createInvestment} onUpdate={updateInvestment} onDelete={deleteInvestment} onOpenInvestment={setOpenInvestment} />
             )}
             {isMaster && page === "movimentacoes" && (
               <AdminMovimentacoes transactions={transactions} users={users} investments={investments} />
@@ -1828,6 +1921,9 @@ function GlobalStyle() {
       .pf-btn-primary:hover { filter: brightness(1.08); }
       .pf-btn-ghost { background: var(--surface-2); border-color: var(--border); color: var(--text); }
       .pf-btn-ghost:hover { border-color: var(--text-faint); }
+      .pf-btn-danger { background: var(--red); color: #fff; }
+      .pf-btn-danger:hover { filter: brightness(1.1); }
+      .pf-confirm-actions { display: flex; gap: 10px; margin-top: 4px; }
       .pf-btn-block { width: 100%; }
       .pf-btn-sm { padding: 7px 11px; font-size: 12.5px; }
       .pf-link { background: none; border: none; color: var(--text-dim); font-size: 13px; margin-top: 12px; text-decoration: underline; text-underline-offset: 3px; }
