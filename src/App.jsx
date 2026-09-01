@@ -137,6 +137,13 @@ function mapProfile(row) {
     role: row.role,
     status: row.status,
     createdAt: row.created_at,
+    banco: row.banco || "",
+    agencia: row.agencia || "",
+    conta: row.conta || "",
+    tipoConta: row.tipo_conta || "Corrente",
+    titular: row.titular || "",
+    cpfTitular: row.cpf_titular || "",
+    chavePix: row.chave_pix || "",
   };
 }
 
@@ -675,9 +682,69 @@ function InvestorDashboard({ user, investments, onOpenInvestment }) {
   );
 }
 
+/* ============================ Dados bancários (investidor) ============================ */
+
+function BankAccountCard({ user, onSave }) {
+  const [form, setForm] = useState({
+    banco: user.banco || "",
+    agencia: user.agencia || "",
+    conta: user.conta || "",
+    tipoConta: user.tipoConta || "Corrente",
+    titular: user.titular || user.nome || "",
+    cpfTitular: user.cpfTitular || user.cpfCnpj || "",
+    chavePix: user.chavePix || "",
+  });
+  const [saving, setSaving] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    setSaving(true);
+    await onSave(form);
+    setSaving(false);
+  }
+
+  return (
+    <Card title="Dados bancários para recebimento" icon={Wallet}>
+      <p className="pf-report-desc">
+        Esses dados serão usados para o pagamento do seu provento na data de vencimento de
+        cada operação.
+      </p>
+      <form className="pf-form pf-form-grid" onSubmit={submit}>
+        <Field label="Banco">
+          <input required value={form.banco} onChange={(e) => setForm({ ...form, banco: e.target.value })} placeholder="Ex: Banco do Brasil" />
+        </Field>
+        <Field label="Tipo de conta">
+          <select value={form.tipoConta} onChange={(e) => setForm({ ...form, tipoConta: e.target.value })}>
+            <option>Corrente</option>
+            <option>Poupança</option>
+          </select>
+        </Field>
+        <Field label="Agência">
+          <input required value={form.agencia} onChange={(e) => setForm({ ...form, agencia: e.target.value })} placeholder="0001" />
+        </Field>
+        <Field label="Conta (com dígito)">
+          <input required value={form.conta} onChange={(e) => setForm({ ...form, conta: e.target.value })} placeholder="12345-6" />
+        </Field>
+        <Field label="Nome do titular">
+          <input required value={form.titular} onChange={(e) => setForm({ ...form, titular: e.target.value })} />
+        </Field>
+        <Field label="CPF/CNPJ do titular">
+          <input required value={form.cpfTitular} onChange={(e) => setForm({ ...form, cpfTitular: e.target.value })} />
+        </Field>
+        <Field label="Chave PIX (opcional)">
+          <input value={form.chavePix} onChange={(e) => setForm({ ...form, chavePix: e.target.value })} placeholder="CPF, e-mail, telefone ou chave aleatória" />
+        </Field>
+        <button className="pf-btn pf-btn-primary pf-form-span" type="submit" disabled={saving} style={{ justifySelf: "start" }}>
+          {saving ? "Salvando…" : "Salvar dados bancários"}
+        </button>
+      </form>
+    </Card>
+  );
+}
+
 /* ============================ INVESTOR: CARTEIRA ============================= */
 
-function InvestorCarteira({ user, investments, onOpenInvestment }) {
+function InvestorCarteira({ user, investments, onOpenInvestment, onSaveBankInfo }) {
   const myInvestments = investments.filter((i) => i.userId === user.id);
   const now = new Date();
   return (
@@ -718,6 +785,7 @@ function InvestorCarteira({ user, investments, onOpenInvestment }) {
           </table>
         </div>
       </Card>
+      <BankAccountCard user={user} onSave={onSaveBankInfo} />
     </div>
   );
 }
@@ -1682,6 +1750,21 @@ export default function App() {
     logAction("Editou usuário", "USERS", id, "Dados cadastrais atualizados.");
     addToast("Investidor atualizado.", "success");
   }
+  async function updateBankInfo(data) {
+    const { error } = await supabase.from("profiles").update({
+      banco: data.banco,
+      agencia: data.agencia,
+      conta: data.conta,
+      tipo_conta: data.tipoConta,
+      titular: data.titular,
+      cpf_titular: data.cpfTitular,
+      chave_pix: data.chavePix,
+    }).eq("id", session.id);
+    if (error) { addToast(`Erro ao salvar dados bancários: ${error.message}`, "info"); return; }
+    setSession((s) => ({ ...s, ...data }));
+    setUsers((us) => us.map((u) => (u.id === session.id ? { ...u, ...data } : u)));
+    addToast("Dados bancários salvos com sucesso.", "success");
+  }
   async function blockUser(u) {
     await supabase.from("profiles").update({ status: "Bloqueado" }).eq("id", u.id);
     setUsers((us) => us.map((x) => (x.id === u.id ? { ...x, status: "Bloqueado" } : x)));
@@ -1773,7 +1856,7 @@ export default function App() {
               <InvestorDashboard user={session} investments={investments} onOpenInvestment={setOpenInvestment} />
             )}
             {!isMaster && page === "carteira" && (
-              <InvestorCarteira user={session} investments={investments} onOpenInvestment={setOpenInvestment} />
+              <InvestorCarteira user={session} investments={investments} onOpenInvestment={setOpenInvestment} onSaveBankInfo={updateBankInfo} />
             )}
             {!isMaster && page === "historico" && (
               <InvestorHistorico user={session} transactions={transactions} investments={investments} />
