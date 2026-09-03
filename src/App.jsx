@@ -4,6 +4,7 @@ import {
   BarChart, Bar, PieChart, Pie, Cell, Legend, AreaChart, Area
 } from "recharts";
 import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
 import {
   LayoutDashboard, Wallet, TrendingUp, History, FileText, User, LogOut,
   Users, ClipboardList, BarChart3, Settings, Search, Plus, X, Check, Ban,
@@ -819,7 +820,90 @@ function InvestorCarteira({ user, investments, onOpenInvestment, onSaveBankInfo 
 
 /* ============================== DETALHE MODAL ================================ */
 
-function InvestmentDetailModal({ investment, onClose }) {
+/* ---------------------- Relatório de rentabilidade (PDF por investimento) --------------------- */
+
+function generateInvestmentReportPdf(investment, investorName) {
+  const now = new Date();
+  const valorAtual = currentValueAt(investment, now);
+  const rent = accruedPercent(investment, now);
+  const doc = new jsPDF();
+
+  doc.setFontSize(18);
+  doc.setTextColor(20, 20, 20);
+  doc.text("PrecForge", 14, 20);
+  doc.setFontSize(11);
+  doc.setTextColor(130, 130, 130);
+  doc.text("Relatório de Rentabilidade", 14, 27);
+  doc.setDrawColor(220, 220, 220);
+  doc.line(14, 32, 196, 32);
+
+  doc.setFontSize(14);
+  doc.setTextColor(20, 20, 20);
+  doc.text(investment.nome, 14, 43);
+
+  let y = 54;
+  const row = (label, value) => {
+    doc.setFontSize(10);
+    doc.setTextColor(130, 130, 130);
+    doc.text(label, 14, y);
+    doc.setTextColor(30, 30, 30);
+    doc.text(String(value), 90, y);
+    y += 8;
+  };
+
+  if (investorName) row("Investidor", investorName);
+  row("Tipo de ativo", investment.tipo);
+  row("Valor aplicado", formatBRL(investment.valorInvestido));
+  row("Data da aplicação", formatDateBR(investment.dataAplicacao));
+  row("Taxa contratada", `${formatPercent(investment.taxa * 100)} a.a. (${investment.tipoTaxa})`);
+  row("Prazo da operação", `${investment.prazoMeses} meses`);
+  row("Data prevista de liquidação", formatDateBR(investment.dataVencimento));
+  row("Status", investment.status);
+
+  y += 4;
+  doc.setDrawColor(220, 220, 220);
+  doc.line(14, y, 196, y);
+  y += 14;
+
+  doc.setFontSize(10);
+  doc.setTextColor(130, 130, 130);
+  doc.text("Rentabilidade acumulada", 14, y);
+  doc.text("Valor atual", 110, y);
+  doc.setFontSize(17);
+  if (rent >= 0) doc.setTextColor(16, 150, 90); else doc.setTextColor(200, 55, 55);
+  doc.text(`${rent >= 0 ? "+" : ""}${formatPercent(rent)}`, 14, y + 10);
+  doc.setTextColor(20, 20, 20);
+  doc.text(formatBRL(valorAtual), 110, y + 10);
+
+  y += 28;
+  doc.setDrawColor(220, 220, 220);
+  doc.line(14, y, 196, y);
+  y += 10;
+
+  if (investment.observacoes) {
+    doc.setFontSize(10);
+    doc.setTextColor(130, 130, 130);
+    doc.text("Observações", 14, y);
+    y += 6;
+    doc.setTextColor(60, 60, 60);
+    const obsLines = doc.splitTextToSize(investment.observacoes, 182);
+    doc.text(obsLines, 14, y);
+    y += obsLines.length * 5 + 6;
+  }
+
+  doc.setFontSize(8);
+  doc.setTextColor(160, 160, 160);
+  doc.text(
+    `Relatório gerado em ${now.toLocaleDateString("pt-BR")} às ${now.toLocaleTimeString("pt-BR")} pela plataforma PrecForge.`,
+    14,
+    287
+  );
+
+  const nomeArquivo = `relatorio-rentabilidade-${investment.nome.replace(/[^\p{L}\p{N}]+/gu, "-").toLowerCase()}.pdf`;
+  doc.save(nomeArquivo);
+}
+
+function InvestmentDetailModal({ investment, investorName, onClose }) {
   const hidden = useContext(VisibilityContext);
   const [range, setRange] = useState("6m");
   const now = new Date();
@@ -842,6 +926,13 @@ function InvestmentDetailModal({ investment, onClose }) {
           {investment.observacoes && (
             <div className="pf-detail-obs"><span>Observações</span><p>{investment.observacoes}</p></div>
           )}
+          <button
+            className="pf-btn pf-btn-ghost pf-btn-sm"
+            style={{ marginTop: 4, alignSelf: "flex-start" }}
+            onClick={() => generateInvestmentReportPdf(investment, investorName)}
+          >
+            <FileDown size={14} /> Baixar relatório de rentabilidade (PDF)
+          </button>
         </div>
         <div className="pf-detail-chart">
           <RangeTabs value={range} onChange={setRange} />
@@ -1950,7 +2041,13 @@ export default function App() {
         </div>
       </div>
 
-      {openInvestment && <InvestmentDetailModal investment={openInvestment} onClose={() => setOpenInvestment(null)} />}
+      {openInvestment && (
+        <InvestmentDetailModal
+          investment={openInvestment}
+          investorName={users.find((u) => u.id === openInvestment.userId)?.nome}
+          onClose={() => setOpenInvestment(null)}
+        />
+      )}
       </VisibilityContext.Provider>
       <ToastStack toasts={toasts} />
     </div>
