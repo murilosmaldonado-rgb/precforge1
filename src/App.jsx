@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef, createContext, useContext } from "react";
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   BarChart, Bar, PieChart, Pie, Cell, Legend, AreaChart, Area
@@ -242,6 +242,17 @@ function ForgeMark({ size = 28 }) {
   );
 }
 
+/* ------------------------ Ocultar/mostrar valores (privacidade) ------------------------ */
+// Contexto global: quando ativo, todos os valores monetários e percentuais
+// da plataforma aparecem mascarados, como em apps de banco.
+
+const VisibilityContext = createContext(false);
+
+function Amount({ value }) {
+  const hidden = useContext(VisibilityContext);
+  return <>{hidden ? "R$ ••••••" : formatBRL(value)}</>;
+}
+
 function Badge({ status }) {
   const map = {
     Ativo: "pf-badge-green",
@@ -254,11 +265,12 @@ function Badge({ status }) {
 }
 
 function Delta({ value }) {
+  const hidden = useContext(VisibilityContext);
   const positive = value >= 0;
   return (
     <span className={`pf-delta ${positive ? "pf-delta-up" : "pf-delta-down"}`}>
       {positive ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
-      {formatPercent(Math.abs(value))}
+      {hidden ? "•••%" : formatPercent(Math.abs(value))}
     </span>
   );
 }
@@ -305,7 +317,7 @@ function ChartTooltip({ active, payload, label }) {
   return (
     <div className="pf-tooltip">
       <div className="pf-tooltip-label">{label}</div>
-      <div className="pf-tooltip-value">{formatBRL(payload[0].value)}</div>
+      <div className="pf-tooltip-value"><Amount value={payload[0].value} /></div>
     </div>
   );
 }
@@ -557,7 +569,7 @@ function Sidebar({ role, page, setPage, onLogout, open, setOpen }) {
 
 /* --------------------------------- Topbar ---------------------------------- */
 
-function Topbar({ user, title, onMenu, search, onSearch }) {
+function Topbar({ user, title, onMenu, search, onSearch, valuesHidden, onToggleValues }) {
   return (
     <header className="pf-topbar">
       <button className="pf-icon-btn pf-only-mobile" onClick={onMenu}><Menu size={20} /></button>
@@ -569,6 +581,13 @@ function Topbar({ user, title, onMenu, search, onSearch }) {
             <input placeholder="Buscar…" value={search} onChange={(e) => onSearch(e.target.value)} />
           </div>
         )}
+        <button
+          className="pf-icon-btn"
+          onClick={onToggleValues}
+          title={valuesHidden ? "Mostrar valores" : "Ocultar valores"}
+        >
+          {valuesHidden ? <EyeOff size={17} /> : <Eye size={17} />}
+        </button>
         <button className="pf-icon-btn"><Bell size={17} /></button>
         <div className="pf-avatar" title={user.nome}>{user.nome.split(" ").map((p) => p[0]).slice(0, 2).join("")}</div>
       </div>
@@ -594,6 +613,7 @@ function RangeTabs({ value, onChange }) {
 /* ============================ INVESTOR: DASHBOARD ============================ */
 
 function InvestorDashboard({ user, investments, onOpenInvestment }) {
+  const hidden = useContext(VisibilityContext);
   const [range, setRange] = useState("6m");
   const myInvestments = investments.filter((i) => i.userId === user.id);
   const now = new Date();
@@ -620,11 +640,11 @@ function InvestorDashboard({ user, investments, onOpenInvestment }) {
 
       <div className="pf-cards-grid">
         <Card title="Saldo investido" icon={Wallet}>
-          <div className="pf-metric">{formatBRL(saldoInvestido)}</div>
+          <div className="pf-metric"><Amount value={saldoInvestido} /></div>
           <span className="pf-metric-sub">Total originalmente aplicado</span>
         </Card>
         <Card title="Saldo atual" icon={TrendingUp} accent>
-          <div className="pf-metric pf-metric-accent">{formatBRL(saldoAtual)}</div>
+          <div className="pf-metric pf-metric-accent"><Amount value={saldoAtual} /></div>
           <span className="pf-metric-sub">Atualizado com rentabilidade acumulada</span>
         </Card>
         <Card title="Rentabilidade total">
@@ -641,7 +661,7 @@ function InvestorDashboard({ user, investments, onOpenInvestment }) {
         <div className="pf-chart-head">
           <div>
             <div className="pf-chart-title">Evolução do patrimônio</div>
-            <div className="pf-chart-value">{formatBRL(saldoAtual)}</div>
+            <div className="pf-chart-value"><Amount value={saldoAtual} /></div>
           </div>
           <RangeTabs value={range} onChange={setRange} />
         </div>
@@ -672,10 +692,10 @@ function InvestorDashboard({ user, investments, onOpenInvestment }) {
               <button key={inv.id} className="pf-mini-row" onClick={() => onOpenInvestment(inv)}>
                 <div className="pf-mini-row-main">
                   <div className="pf-mini-row-name">{inv.nome}</div>
-                  <div className="pf-mini-row-sub">{formatDateBR(inv.dataAplicacao)} · {formatPercent(inv.taxa * 100, " a.a.")}</div>
+                  <div className="pf-mini-row-sub">{formatDateBR(inv.dataAplicacao)} · {hidden ? "•••% a.a." : formatPercent(inv.taxa * 100, " a.a.")}</div>
                 </div>
                 <div className="pf-mini-row-value">
-                  <div>{formatBRL(currentValueAt(inv, now))}</div>
+                  <div><Amount value={currentValueAt(inv, now)} /></div>
                   <Delta value={rent} />
                 </div>
                 <ChevronRight size={16} className="pf-mini-row-chevron" />
@@ -751,6 +771,7 @@ function BankAccountCard({ user, onSave }) {
 /* ============================ INVESTOR: CARTEIRA ============================= */
 
 function InvestorCarteira({ user, investments, onOpenInvestment, onSaveBankInfo }) {
+  const hidden = useContext(VisibilityContext);
   const myInvestments = investments.filter((i) => i.userId === user.id);
   const now = new Date();
   return (
@@ -779,11 +800,11 @@ function InvestorCarteira({ user, investments, onOpenInvestment, onSaveBankInfo 
                 <tr key={inv.id} onClick={() => onOpenInvestment(inv)} className="pf-row-clickable">
                   <td className="pf-cell-strong">{inv.nome}</td>
                   <td>{formatDateBR(inv.dataAplicacao)}</td>
-                  <td className="pf-mono">{formatBRL(inv.valorInvestido)}</td>
-                  <td className="pf-mono">{formatPercent(inv.taxa * 100, " a.a.")}</td>
+                  <td className="pf-mono"><Amount value={inv.valorInvestido} /></td>
+                  <td className="pf-mono">{hidden ? "•••% a.a." : formatPercent(inv.taxa * 100, " a.a.")}</td>
                   <td>{inv.prazoMeses} meses</td>
                   <td className="pf-mono"><Delta value={accruedPercent(inv, now)} /></td>
-                  <td className="pf-mono pf-cell-strong">{formatBRL(currentValueAt(inv, now))}</td>
+                  <td className="pf-mono pf-cell-strong"><Amount value={currentValueAt(inv, now)} /></td>
                   <td><Badge status={inv.status} /></td>
                 </tr>
               ))}
@@ -799,6 +820,7 @@ function InvestorCarteira({ user, investments, onOpenInvestment, onSaveBankInfo 
 /* ============================== DETALHE MODAL ================================ */
 
 function InvestmentDetailModal({ investment, onClose }) {
+  const hidden = useContext(VisibilityContext);
   const [range, setRange] = useState("6m");
   const now = new Date();
   const valorAtual = currentValueAt(investment, now);
@@ -809,11 +831,11 @@ function InvestmentDetailModal({ investment, onClose }) {
     <Modal title={investment.nome} onClose={onClose} wide>
       <div className="pf-detail-grid">
         <div className="pf-detail-facts">
-          <div><span>Valor aplicado</span><strong>{formatBRL(investment.valorInvestido)}</strong></div>
+          <div><span>Valor aplicado</span><strong><Amount value={investment.valorInvestido} /></strong></div>
           <div><span>Data da aplicação</span><strong>{formatDateBR(investment.dataAplicacao)}</strong></div>
-          <div><span>Taxa contratada</span><strong>{formatPercent(investment.taxa * 100, ` a.a. (${investment.tipoTaxa})`)}</strong></div>
+          <div><span>Taxa contratada</span><strong>{hidden ? `•••% a.a. (${investment.tipoTaxa})` : formatPercent(investment.taxa * 100, ` a.a. (${investment.tipoTaxa})`)}</strong></div>
           <div><span>Rentabilidade acumulada</span><strong><Delta value={rent} /></strong></div>
-          <div><span>Valor atual</span><strong className="pf-text-accent">{formatBRL(valorAtual)}</strong></div>
+          <div><span>Valor atual</span><strong className="pf-text-accent"><Amount value={valorAtual} /></strong></div>
           <div><span>Prazo da operação</span><strong>{investment.prazoMeses} meses</strong></div>
           <div><span>Data prevista de liquidação</span><strong>{formatDateBR(investment.dataVencimento)}</strong></div>
           <div><span>Status</span><strong><Badge status={investment.status} /></strong></div>
@@ -841,6 +863,7 @@ function InvestmentDetailModal({ investment, onClose }) {
 /* ============================== INVESTOR: HISTÓRICO =========================== */
 
 function InvestorHistorico({ user, transactions, investments }) {
+  const hidden = useContext(VisibilityContext);
   const myTx = transactions
     .filter((t) => t.userId === user.id)
     .sort((a, b) => new Date(b.data) - new Date(a.data));
@@ -863,7 +886,7 @@ function InvestorHistorico({ user, transactions, investments }) {
                 </div>
                 <div className="pf-timeline-desc">{t.descricao}</div>
                 <div className="pf-timeline-meta">
-                  {nameOf(t.investmentId)}{t.valor > 0 ? ` · ${formatBRL(t.valor)}` : ""}
+                  {nameOf(t.investmentId)}{t.valor > 0 ? ` · ${hidden ? "R$ ••••••" : formatBRL(t.valor)}` : ""}
                 </div>
               </div>
             </div>
@@ -938,6 +961,7 @@ function InvestorPerfil({ user }) {
 const PIE_COLORS = ["#34D399", "#C9762E", "#6E9FE0", "#C9A227", "#B084E3"];
 
 function AdminDashboard({ users, investments }) {
+  const hidden = useContext(VisibilityContext);
   const now = new Date();
   const investidores = users.filter((u) => u.role === "investidor");
   const ativos = investments.filter((i) => i.status === "Ativo");
@@ -967,10 +991,10 @@ function AdminDashboard({ users, investments }) {
 
       <div className="pf-cards-grid pf-cards-grid-5">
         <Card title="Patrimônio total" icon={TrendingUp} accent>
-          <div className="pf-metric pf-metric-accent">{formatBRL(patrimonioTotal)}</div>
+          <div className="pf-metric pf-metric-accent"><Amount value={patrimonioTotal} /></div>
         </Card>
         <Card title="Total investido" icon={Wallet}>
-          <div className="pf-metric">{formatBRL(totalInvestido)}</div>
+          <div className="pf-metric"><Amount value={totalInvestido} /></div>
         </Card>
         <Card title="Investidores ativos" icon={Users}>
           <div className="pf-metric">{investidores.filter((u) => u.status === "Ativo").length}</div>
@@ -1012,7 +1036,7 @@ function AdminDashboard({ users, investments }) {
               <Pie data={distribuicao} dataKey="valor" nameKey="tipo" innerRadius={55} outerRadius={85} paddingAngle={2}>
                 {distribuicao.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
               </Pie>
-              <Tooltip formatter={(v) => formatBRL(v)} contentStyle={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 8 }} />
+              <Tooltip formatter={(v) => (hidden ? "R$ ••••••" : formatBRL(v))} contentStyle={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 8 }} />
             </PieChart>
           </ResponsiveContainer>
           <div className="pf-legend">
@@ -1030,7 +1054,7 @@ function AdminDashboard({ users, investments }) {
               <CartesianGrid stroke="var(--border)" strokeDasharray="3 6" vertical={false} />
               <XAxis dataKey="nome" tick={{ fill: "var(--text-faint)", fontSize: 11 }} axisLine={false} tickLine={false} />
               <YAxis tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} tick={{ fill: "var(--text-faint)", fontSize: 11 }} axisLine={false} tickLine={false} width={44} />
-              <Tooltip formatter={(v) => formatBRL(v)} contentStyle={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 8 }} />
+              <Tooltip formatter={(v) => (hidden ? "R$ ••••••" : formatBRL(v))} contentStyle={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 8 }} />
               <Bar dataKey="valor" fill="#C9762E" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -1124,7 +1148,7 @@ function AdminInvestidores({ users, investments, onCreate, onUpdate, onBlock, on
                   <td>{u.email}</td>
                   <td>{u.telefone}</td>
                   <td>{formatDateBR(u.createdAt)}</td>
-                  <td className="pf-mono">{formatBRL(patrimonioDe(u.id))}</td>
+                  <td className="pf-mono"><Amount value={patrimonioDe(u.id)} /></td>
                   <td><Badge status={u.status} /></td>
                   <td>
                     <div className="pf-row-actions">
@@ -1272,6 +1296,7 @@ function ConfirmModal({ title, message, confirmLabel, onConfirm, onCancel }) {
 }
 
 function AdminInvestimentos({ users, investments, onCreate, onUpdate, onDelete, onOpenInvestment }) {
+  const hidden = useContext(VisibilityContext);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
@@ -1344,10 +1369,10 @@ function AdminInvestimentos({ users, investments, onCreate, onUpdate, onDelete, 
                   <td className="pf-cell-strong">{inv.nome}</td>
                   <td>{nameOf(inv.userId)}</td>
                   <td>{formatDateBR(inv.dataAplicacao)}</td>
-                  <td className="pf-mono">{formatBRL(inv.valorInvestido)}</td>
-                  <td className="pf-mono">{formatPercent(inv.taxa * 100, " a.a.")}</td>
+                  <td className="pf-mono"><Amount value={inv.valorInvestido} /></td>
+                  <td className="pf-mono">{hidden ? "•••% a.a." : formatPercent(inv.taxa * 100, " a.a.")}</td>
                   <td className="pf-mono"><Delta value={accruedPercent(inv, now)} /></td>
-                  <td className="pf-mono pf-cell-strong">{formatBRL(currentValueAt(inv, now))}</td>
+                  <td className="pf-mono pf-cell-strong"><Amount value={currentValueAt(inv, now)} /></td>
                   <td><Badge status={inv.status} /></td>
                   <td onClick={(e) => e.stopPropagation()}>
                     <div className="pf-row-actions">
@@ -1412,7 +1437,7 @@ function AdminMovimentacoes({ transactions, users, investments }) {
                   <td>{t.tipo}</td>
                   <td>{nameOf(t.userId)}</td>
                   <td>{invNameOf(t.investmentId)}</td>
-                  <td className="pf-mono">{t.valor > 0 ? formatBRL(t.valor) : "—"}</td>
+                  <td className="pf-mono">{t.valor > 0 ? <Amount value={t.valor} /> : "—"}</td>
                   <td>{t.descricao}</td>
                 </tr>
               ))}
@@ -1621,6 +1646,17 @@ export default function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [openInvestment, setOpenInvestment] = useState(null);
   const [toasts, setToasts] = useState([]);
+  const [valuesHidden, setValuesHidden] = useState(() => {
+    try { return localStorage.getItem("pf_hide_values") === "1"; } catch { return false; }
+  });
+
+  function toggleValuesHidden() {
+    setValuesHidden((v) => {
+      const next = !v;
+      try { localStorage.setItem("pf_hide_values", next ? "1" : "0"); } catch {}
+      return next;
+    });
+  }
 
   function addToast(message, type = "info") {
     const id = genId("toast");
@@ -1867,10 +1903,11 @@ export default function App() {
   return (
     <div className="pf-app">
       <GlobalStyle />
+      <VisibilityContext.Provider value={valuesHidden}>
       <div className="pf-shell">
         <Sidebar role={session.role} page={page} setPage={setPage} onLogout={handleLogout} open={drawerOpen} setOpen={setDrawerOpen} />
         <div className="pf-main">
-          <Topbar user={session} title={pageTitle} onMenu={() => setDrawerOpen(true)} />
+          <Topbar user={session} title={pageTitle} onMenu={() => setDrawerOpen(true)} valuesHidden={valuesHidden} onToggleValues={toggleValuesHidden} />
           <div className="pf-content">
             {!isMaster && page === "dashboard" && (
               <InvestorDashboard user={session} investments={investments} onOpenInvestment={setOpenInvestment} />
@@ -1914,6 +1951,7 @@ export default function App() {
       </div>
 
       {openInvestment && <InvestmentDetailModal investment={openInvestment} onClose={() => setOpenInvestment(null)} />}
+      </VisibilityContext.Provider>
       <ToastStack toasts={toasts} />
     </div>
   );
