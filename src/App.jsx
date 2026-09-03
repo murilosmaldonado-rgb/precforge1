@@ -33,7 +33,13 @@ const formatNumberBR = (v, d = 2) =>
 const formatPercent = (v, suffix = "") =>
   `${formatNumberBR(v)}%${suffix}`;
 
-const toDate = (s) => (s instanceof Date ? s : new Date(`${s}T00:00:00`));
+const toDate = (s) => {
+  if (s instanceof Date) return s;
+  // Aceita tanto uma data simples ("2026-01-10") quanto um timestamp
+  // completo vindo do banco ("2026-01-10T14:32:00.000Z").
+  if (typeof s === "string" && s.includes("T")) return new Date(s);
+  return new Date(`${s}T00:00:00`);
+};
 
 const formatDateBR = (s) => toDate(s).toLocaleDateString("pt-BR");
 
@@ -1038,7 +1044,9 @@ function AdminDashboard({ users, investments }) {
 
 function UserFormModal({ initial, onClose, onSave }) {
   const [form, setForm] = useState(
-    initial || { nome: "", cpfCnpj: "", email: "", telefone: "", senha: "demo123" }
+    initial
+      ? { ...initial, dataCadastro: (initial.createdAt || "").slice(0, 10) }
+      : { nome: "", cpfCnpj: "", email: "", telefone: "", senha: "demo123", dataCadastro: new Date().toISOString().slice(0, 10) }
   );
   return (
     <Modal title={initial ? "Editar investidor" : "Novo investidor"} onClose={onClose}>
@@ -1053,10 +1061,13 @@ function UserFormModal({ initial, onClose, onSave }) {
           <input required value={form.cpfCnpj} onChange={(e) => setForm({ ...form, cpfCnpj: e.target.value })} />
         </Field>
         <Field label="E-mail">
-          <input required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          <input required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} disabled={!!initial} />
         </Field>
         <Field label="Telefone">
           <input required value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} />
+        </Field>
+        <Field label="Data de cadastro">
+          <input required type="date" value={form.dataCadastro} onChange={(e) => setForm({ ...form, dataCadastro: e.target.value })} />
         </Field>
         <button className="pf-btn pf-btn-primary pf-btn-block" type="submit">
           {initial ? "Salvar alterações" : "Criar investidor"}
@@ -1737,7 +1748,11 @@ export default function App() {
     if (error) { addToast(`Erro ao criar investidor: ${error.message}`, "info"); return; }
     const newId = signUpData.user?.id;
     if (newId) {
-      await supabase.from("profiles").update({ cpf_cnpj: data.cpfCnpj, telefone: data.telefone }).eq("id", newId);
+      await supabase.from("profiles").update({
+        cpf_cnpj: data.cpfCnpj,
+        telefone: data.telefone,
+        created_at: data.dataCadastro,
+      }).eq("id", newId);
       await supabase.auth.resetPasswordForEmail(data.email);
     }
     await loadAllData();
@@ -1745,8 +1760,13 @@ export default function App() {
     addToast(`Investidor criado. Um e-mail de definição de senha foi enviado a ${data.email}.`, "success");
   }
   async function updateUser(id, data) {
-    await supabase.from("profiles").update({ nome: data.nome, cpf_cnpj: data.cpfCnpj, telefone: data.telefone }).eq("id", id);
-    setUsers((us) => us.map((u) => (u.id === id ? { ...u, ...data } : u)));
+    await supabase.from("profiles").update({
+      nome: data.nome,
+      cpf_cnpj: data.cpfCnpj,
+      telefone: data.telefone,
+      created_at: data.dataCadastro,
+    }).eq("id", id);
+    setUsers((us) => us.map((u) => (u.id === id ? { ...u, ...data, createdAt: data.dataCadastro } : u)));
     logAction("Editou usuário", "USERS", id, "Dados cadastrais atualizados.");
     addToast("Investidor atualizado.", "success");
   }
