@@ -1977,6 +1977,33 @@ export default function App() {
     setUsers([]); setInvestments([]); setTransactions([]); setDocuments([]); setAuditLogs([]);
   }
 
+  // Logout automático por inatividade: se a pessoa ficar alguns minutos sem
+  // mexer no mouse/teclado enquanto logada, a sessão é encerrada sozinha.
+  useEffect(() => {
+    if (!session) return;
+    const LIMITE_INATIVIDADE_MS = 15 * 60 * 1000; // 15 minutos
+    let timer;
+
+    function encerrarPorInatividade() {
+      handleLogout();
+      addToast("Sessão encerrada por inatividade. Faça login novamente.", "info");
+    }
+
+    function resetTimer() {
+      clearTimeout(timer);
+      timer = setTimeout(encerrarPorInatividade, LIMITE_INATIVIDADE_MS);
+    }
+
+    const eventos = ["mousemove", "mousedown", "keydown", "scroll", "touchstart", "click"];
+    eventos.forEach((ev) => window.addEventListener(ev, resetTimer));
+    resetTimer();
+
+    return () => {
+      clearTimeout(timer);
+      eventos.forEach((ev) => window.removeEventListener(ev, resetTimer));
+    };
+  }, [session]);
+
   async function logAction(acao, entidade, entidadeId, detalhes) {
     const { data, error } = await supabase
       .from("audit_logs")
