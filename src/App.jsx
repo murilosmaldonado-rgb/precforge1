@@ -822,11 +822,81 @@ function InvestorCarteira({ user, investments, onOpenInvestment, onSaveBankInfo 
 
 /* ---------------------- Relatório de rentabilidade (PDF por investimento) --------------------- */
 
+const MESES_PT = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+
+// Uma linha por mês corrido, do mês da aplicação até o mês atual (ou até o
+// mês de vencimento, se a operação já tiver sido liquidada antes de hoje).
+function buildMonthlyBreakdown(investment) {
+  const start = toDate(investment.dataAplicacao);
+  const now = new Date();
+  const limite = investment.status === "Liquidado" && investment.dataVencimento
+    ? toDate(investment.dataVencimento)
+    : now;
+  const rows = [];
+  let cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+  const endCursor = new Date(limite.getFullYear(), limite.getMonth(), 1);
+  while (cursor <= endCursor) {
+    const isUltimoMes = cursor.getFullYear() === endCursor.getFullYear() && cursor.getMonth() === endCursor.getMonth();
+    const asOf = isUltimoMes ? limite : new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0);
+    rows.push({
+      label: `${MESES_PT[asOf.getMonth()]}/${asOf.getFullYear()}`,
+      valor: currentValueAt(investment, asOf),
+      pct: accruedPercent(investment, asOf),
+    });
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+  }
+  return rows;
+}
+
+// Gráfico de linha desenhado manualmente (sem dependências extras),
+// usando os mesmos pontos mês a mês da tabela.
+function drawLineChart(doc, points, x, y, width, height) {
+  if (points.length < 2) return;
+  const values = points.map((p) => p.valor);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+
+  doc.setDrawColor(225, 225, 225);
+  doc.setLineWidth(0.2);
+  doc.rect(x, y, width, height);
+  for (let i = 1; i <= 3; i++) {
+    const gy = y + (height * i) / 4;
+    doc.line(x, gy, x + width, gy);
+  }
+
+  doc.setDrawColor(52, 180, 130);
+  doc.setLineWidth(0.7);
+  for (let i = 0; i < points.length - 1; i++) {
+    const x1 = x + (width * i) / (points.length - 1);
+    const x2 = x + (width * (i + 1)) / (points.length - 1);
+    const y1 = y + height - ((points[i].valor - min) / range) * height;
+    const y2 = y + height - ((points[i + 1].valor - min) / range) * height;
+    doc.line(x1, y1, x2, y2);
+  }
+
+  doc.setFontSize(8);
+  doc.setTextColor(140, 140, 140);
+  doc.text(formatBRL(max), x + 2, y + 4);
+  doc.text(formatBRL(min), x + 2, y + height - 2);
+  doc.text(points[0].label, x, y + height + 6);
+  doc.text(points[points.length - 1].label, x + width - 18, y + height + 6);
+}
+
 function generateInvestmentReportPdf(investment, investorName) {
   const now = new Date();
   const valorAtual = currentValueAt(investment, now);
   const rent = accruedPercent(investment, now);
+  const monthly = buildMonthlyBreakdown(investment);
   const doc = new jsPDF();
+  const PAGE_BOTTOM = 280;
+
+  function ensureSpace(needed) {
+    if (y + needed > PAGE_BOTTOM) {
+      doc.addPage();
+      y = 20;
+    }
+  }
 
   doc.setFontSize(18);
   doc.setTextColor(20, 20, 20);
@@ -874,13 +944,12 @@ function generateInvestmentReportPdf(investment, investorName) {
   doc.text(`${rent >= 0 ? "+" : ""}${formatPercent(rent)}`, 14, y + 10);
   doc.setTextColor(20, 20, 20);
   doc.text(formatBRL(valorAtual), 110, y + 10);
-
-  y += 28;
-  doc.setDrawColor(220, 220, 220);
-  doc.line(14, y, 196, y);
-  y += 10;
+  y += 26;
 
   if (investment.observacoes) {
+    doc.setDrawColor(220, 220, 220);
+    doc.line(14, y, 196, y);
+    y += 10;
     doc.setFontSize(10);
     doc.setTextColor(130, 130, 130);
     doc.text("Observações", 14, y);
@@ -891,13 +960,67 @@ function generateInvestmentReportPdf(investment, investorName) {
     y += obsLines.length * 5 + 6;
   }
 
-  doc.setFontSize(8);
-  doc.setTextColor(160, 160, 160);
-  doc.text(
-    `Relatório gerado em ${now.toLocaleDateString("pt-BR")} às ${now.toLocaleTimeString("pt-BR")} pela plataforma PrecForge.`,
-    14,
-    287
-  );
+  // ---- Gráfico de evolução ----
+  ensureSpace(75);
+  doc.setDrawColor(220, 220, 220);
+  doc.line(14, y, 196, y);
+  y += 10;
+  doc.setFontSize(12);
+  doc.setTextColor(20, 20, 20);
+  doc.text("Evolução do patrimônio", 14, y);
+  y += 6;
+  drawLineChart(doc, monthly, 14, y, 182, 50);
+  y += 62;
+
+  // ---- Tabela mês a mês ----
+  ensureSpace(20);
+  doc.setDrawColor(220, 220, 220);
+  doc.line(14, y, 196, y);
+  y += 10;
+  doc.setFontSize(12);
+  doc.setTextColor(20, 20, 20);
+  doc.text("Detalhamento mês a mês", 14, y);
+  y += 8;
+
+  function drawTableHeader() {
+    doc.setFillColor(245, 245, 245);
+    doc.rect(14, y - 5, 182, 8, "F");
+    doc.setFontSize(9);
+    doc.setTextColor(110, 110, 110);
+    doc.text("Mês", 18, y);
+    doc.text("Valor acumulado", 90, y);
+    doc.text("Rentabilidade acumulada", 145, y);
+    y += 9;
+  }
+
+  drawTableHeader();
+  monthly.forEach((m, i) => {
+    ensureSpace(8);
+    if (y === 20) drawTableHeader();
+    if (i % 2 === 1) {
+      doc.setFillColor(250, 250, 250);
+      doc.rect(14, y - 5, 182, 7, "F");
+    }
+    doc.setFontSize(9);
+    doc.setTextColor(60, 60, 60);
+    doc.text(m.label, 18, y);
+    doc.text(formatBRL(m.valor), 90, y);
+    if (m.pct >= 0) doc.setTextColor(16, 150, 90); else doc.setTextColor(200, 55, 55);
+    doc.text(`${m.pct >= 0 ? "+" : ""}${formatPercent(m.pct)}`, 145, y);
+    y += 7;
+  });
+
+  const totalPages = doc.internal.getNumberOfPages();
+  for (let p = 1; p <= totalPages; p++) {
+    doc.setPage(p);
+    doc.setFontSize(8);
+    doc.setTextColor(160, 160, 160);
+    doc.text(
+      `PrecForge — Relatório gerado em ${now.toLocaleDateString("pt-BR")} às ${now.toLocaleTimeString("pt-BR")} — página ${p} de ${totalPages}`,
+      14,
+      292
+    );
+  }
 
   const nomeArquivo = `relatorio-rentabilidade-${investment.nome.replace(/[^\p{L}\p{N}]+/gu, "-").toLowerCase()}.pdf`;
   doc.save(nomeArquivo);
